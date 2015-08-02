@@ -7,3 +7,6 @@ Practice Of《Programming Collective Intelligence》
 
 * Chapter03
     * Can't access to http://member.zebo.com/
+
+* Chapter04
+    * Ubuntu: install libsqlite3-dev 

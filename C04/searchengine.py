@@ -1,15 +1,14 @@
 import urllib2
-from BeautifulSoup import *
+from bs4 import BeautifulSoup
 from urlparse import urljoin
 from pysqlite2 import dbapi2 as sqlite
-#import nn
-#mynet=nn.searchnet('nn.db')
+import re
 
 # Create a list of words to ignore
 ignorewords=set(['the', 'of', 'to', 'and', 'a', 'in', 'is', 'it'])
 
 class crawler:
-    def __init__(self,dbname):
+    def __init__(self, dbname):
         self.con=sqlite.connect(dbname)
 
     def __del__(self):
@@ -20,17 +19,19 @@ class crawler:
 
     # Auxilliary function for getting an entry id and adding 
     # it if it's not present
-    def getentryid(self,table,field,value,createnew=True):
-        cur=self.con.execute("select rowid from %s where %s='%s'" % (table,field,value))
-        res=cur.fetchone()
-        if res==None:
-            cur=self.con.execute("insert into %s (%s) values ('%s')" % (table,field,value))
+    def getentryid(self, table, field, value, createnew=True):
+        cur = self.con.execute("select rowid from %s where %s='%s'" % (table, field, value))
+        res = cur.fetchone()
+        if not bool(res):
+            cur = self.con.execute("insert into %s (%s) values ('%s')" % (table,field,value))
             return cur.lastrowid
         else:
             return res[0] 
 
     # Index an individual page
-    def addtoindex(self,url,soup):
+    def addtoindex(self, url, soup):
+        print url
+        '''
         if self.isindexed(url): return
         print 'Indexing '+url
 
@@ -47,9 +48,9 @@ class crawler:
             if word in ignorewords: continue
             wordid=self.getentryid('wordlist','word',word)
             self.con.execute("insert into wordlocation(urlid,wordid,location) values (%d,%d,%d)" % (urlid,wordid,i))
+        '''
 
-
-    # Extract the text from an HTML page (no tags)
+# Extract the text from an HTML page (no tags)
     def gettextonly(self, soup):
         v = soup.string
         if v is None:
@@ -57,23 +58,28 @@ class crawler:
             resulttext = ''
             for t in c:
                 subtext = self.gettextonly(t)
-                resulttext + =subtext + '\n'
+                resulttext += subtext + '\n'
             return resulttext
         else:
             return v.strip()
 
     # Seperate the words by any non-whitespace character
     def separatewords(self,text):
-        splitter=re.compile('\\W*')
+        splitter = re.compile('\\W*')
         return [s.lower() for s in splitter.split(text) if s!='']
 
     # Return true if this url is already indexed
     def isindexed(self,url):
+        u = self.con.execute('select rowid from urllist where url="%s"'%url).fetchone()
+        if bool(u):
+            v = self.con.execute('select * from wordlocation where urlid=%s'%u[0]).fetchone()
+            if bool(v):
+                return True
         return False
 
     # Add a link between two pages
     def addlinkref(self,urlFrom,urlTo,linkText):
-        words=self.separateWords(linkText)
+        words = self.separatewords(linkText)
         fromid=self.getentryid('urllist','url',urlFrom)
         toid=self.getentryid('urllist','url',urlTo)
         if fromid==toid: return
@@ -96,8 +102,7 @@ class crawler:
                     print "Could not open %s" % page
                     continue
     
-                try:
-                    soup = BeautifulSoup(c.read())
+                soup = BeautifulSoup(c.read(), "html5lib")
                 self.addtoindex(page, soup)
                 links = soup('a')
                 for link in links:
@@ -106,12 +111,10 @@ class crawler:
                         if url.find("'")!=-1: continue
                         url = url.split('#')[0]  # remove location portion
                         if url[0:4]=='http' and not self.isindexed(url):
-                            newpages[url]=1
+                            newpages.add(url)
                         linkText = self.gettextonly(link)
                         self.addlinkref(page, url, linkText)
                 self.dbcommit()
-          except:
-            print "Could not parse page %s" % page
         pages=newpages
     
     
@@ -146,18 +149,13 @@ class crawler:
         
                 # Loop through all the pages that link to this one
                 for (linker,) in self.con.execute('select distinct fromid from link where toid=%d' % urlid):
-                # Get the page rank of the linker
-                linkingpr=self.con.execute('select score from pagerank where urlid=%d' % linker).fetchone()[0]
-                # Get the total number of links from the linker
-        
-                linkingcount=self.con.execute('select count(*) from link where fromid=%d' % linker).fetchone()[0]
-        
-                pr+=0.85*(linkingpr/linkingcount)
-        
-                self.con.execute('update pagerank set score=%f where urlid=%d' % (pr,urlid))
-        
-          self.dbcommit()
-
+                    # Get the page rank of the linker
+                    linkingpr=self.con.execute('select score from pagerank where urlid=%d' % linker).fetchone()[0]
+                    # Get the total number of links from the linker
+                    linkingcount=self.con.execute('select count(*) from link where fromid=%d' % linker).fetchone()[0]
+                    pr+=0.85*(linkingpr/linkingcount)
+                    self.con.execute('update pagerank set score=%f where urlid=%d' % (pr,urlid))
+                    self.dbcommit()
 
 
 class searcher:
@@ -235,7 +233,7 @@ class searcher:
         else:
             maxscore=max(scores.values())
             if maxscore==0: maxscore=vsmall
-                return dict([(u,float(c)/maxscore) for (u,c) in scores.items()])
+            return dict([(u,float(c)/maxscore) for (u,c) in scores.items()])
 
     def frequencyscore(self,rows):
         counts=dict([(row[0],0) for row in rows])
@@ -263,63 +261,43 @@ class searcher:
 
   def inboundlinkscore(self,rows):
     uniqueurls=dict([(row[0],1) for row in rows])
-
     inboundcount=dict([(u,self.con.execute('select count(*) from link where toid=%d' % u).fetchone()[0]) for u in uniqueurls])   
-
     return self.normalizescores(inboundcount)
 
 
 
   def linktextscore(self,rows,wordids):
-
     linkscores=dict([(row[0],0) for row in rows])
-
     for wordid in wordids:
-
       cur=self.con.execute('select link.fromid,link.toid from linkwords,link where wordid=%d and linkwords.linkid=link.rowid' % wordid)
-
       for (fromid,toid) in cur:
-
         if toid in linkscores:
-
           pr=self.con.execute('select score from pagerank where urlid=%d' % fromid).fetchone()[0]
-
           linkscores[toid]+=pr
-
     maxscore=max(linkscores.values())
-
     normalizedscores=dict([(u,float(l)/maxscore) for (u,l) in linkscores.items()])
-
     return normalizedscores
 
 
 
   def pagerankscore(self,rows):
-
     pageranks=dict([(row[0],self.con.execute('select score from pagerank where urlid=%d' % row[0]).fetchone()[0]) for row in rows])
-
     maxrank=max(pageranks.values())
-
     normalizedscores=dict([(u,float(l)/maxrank) for (u,l) in pageranks.items()])
-
     return normalizedscores
 
 
 
   def nnscore(self,rows,wordids):
-
     # Get unique URL IDs as an ordered list
-
     urlids=[urlid for urlid in dict([(row[0],1) for row in rows])]
-
     nnres=mynet.getresult(wordids,urlids)
-
     scores=dict([(urlids[i],nnres[i]) for i in range(len(urlids))])
-
     return self.normalizescores(scores)
 
 
 
 if __name__ == '__main__':
-    crawler = crawler('searchindex.db')
-    crawler.createindextables()
+    crawler = crawler('index.db')
+    #crawler.createindextables()
+    crawler.crawl(["https://en.wikipedia.org/wiki/Main_Page"])
