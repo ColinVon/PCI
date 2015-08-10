@@ -1,7 +1,7 @@
 from math import tanh
 from pysqlite2 import dbapi2 as sqlite
 
-def dtabh(y):
+def dtanh(y):
     return 1.0 - y*y
 
 class searchnet:
@@ -55,7 +55,7 @@ class searchnet:
                 self.setstrength(hiddenid, urlid, 1, 0.1)
             self.con.commit()
 
-    def getallhiddenids(self, wordids, wordids, urlids):
+    def getallhiddenids(self, wordids, urlids):
         l1={}
         for wordid in wordids:
             res = self.con.execute('select toid from wordhidden where fromid=%d'%wordid)
@@ -69,9 +69,9 @@ class searchnet:
 
     def setupnetwork(self,wordids,urlids):
         # value lists
-        self.wordids=wordids
-        self.hiddenids=self.getallhiddenids(wordids,urlids)
-        self.urlids=urlids
+        self.wordids = wordids
+        self.hiddenids = self.getallhiddenids(wordids,urlids)
+        self.urlids = urlids
  
         # node outputs
         self.ai = [1.0]*len(self.wordids)
@@ -160,8 +160,19 @@ if __name__=='__main__':
     #mynet.maketables()
     wWorld, wRiver, wBank = 101, 102, 103
     uWorldBank, uRiver, uEarth = 201, 202, 203
-    mynet.generatehiddennode([wWorld, wBank], [uWorldBank, uRiver, uEarth])
-    for c in mynet.con.execute('select * from wordhidden'):
-        print c
-    for c in mynet.con.execute('select * from hiddenurl'):
-        print c
+    #mynet.generatehiddennode([wWorld, wBank], [uWorldBank, uRiver, uEarth])
+    for c in mynet.con.execute('select * from wordhidden'): print c
+    for c in mynet.con.execute('select * from hiddenurl'): print c
+    
+    print mynet.getresult([wWorld, wBank], [uWorldBank, uRiver, uEarth])
+
+    allurls = [uWorldBank, uRiver, uEarth]
+    for i in range(30):
+        mynet.trainquery([wWorld, wBank], allurls, uWorldBank)
+        mynet.trainquery([wRiver, wBank], allurls, uRiver)
+        mynet.trainquery([wWorld], allurls, uEarth)
+
+    print mynet.getresult([wWorld, wBank], allurls)
+    print mynet.getresult([wRiver, wBank], allurls)
+    print mynet.getresult([wBank], allurls)
+    

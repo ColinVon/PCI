@@ -3,6 +3,8 @@ from bs4 import BeautifulSoup
 from urlparse import urljoin
 from pysqlite2 import dbapi2 as sqlite
 import re
+import nn
+mynet = nn.searchnet('nn.db')
 
 # Create a list of words to ignore
 ignorewords=set(['the',  'of',  'to',  'and',  'a',  'in',  'is',  'it'])
@@ -204,8 +206,8 @@ class searcher:
             (1.0, self.locationscore(rows)),  
             (1.0, self.frequencyscore(rows)), 
             (1.0, self.pagerankscore(rows)), 
-            (1.0, self.linktextscore(rows, wordids))
-            #(5.0, self.nnscore(rows, wordids))
+            (1.0, self.linktextscore(rows, wordids)),
+            (5.0, self.nnscore(rows, wordids))
         ]
         for (weight, scores) in weights:
             for url in totalscores:
@@ -288,7 +290,7 @@ class searcher:
         return self.normalizescores(scores)
 
 if __name__ == '__main__':
-    #crawler = crawler('index.db')
+    crawler = crawler('index.db')
     #crawler.createindextables()
     #crawler.crawl(["https://en.wikipedia.org/wiki/Portal:Technology"])
     #crawler.calculatepagerank()
